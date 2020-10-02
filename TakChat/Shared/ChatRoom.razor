@@ -47,7 +47,7 @@ else
                 </div>
             }
         }
-                
+
         <div class="input-group mb-3">
             <div class="input-group-prepend">
                 <span class="input-group-text" id="basic-addon1">Mensagem</span>
@@ -62,9 +62,9 @@ else
             <div class="input-group-prepend">
                 <span class="input-group-text" title="Informe a sala que receberá a mensagem caso ja esteja registrar ou clique em registrar para criar a sala." id="basic-addon1">Informe a Sala</span>
             </div>
-            <input type="text" class="form-control" @bind="@_room" aria-label="Username" aria-describedby="basic-addon1">
+            <input type="text" class="form-control" @bind="@_roomConnect" aria-label="Username" aria-describedby="basic-addon1">
             <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => SendRegisterRoomAsync(_room))">Registrar</button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => SendRegisterRoomAsync(_roomConnect))">Registrar</button>
             </div>
         </div>
 
@@ -83,13 +83,14 @@ else
 
 @code {
 
-    private bool _isChatting = false; // flag to indicate chat status
-    private string _room = "principal";
+    private bool _isChatting = false; 
+    private string _roomConnect = "principal";
+    private string _roomDisconnect = "principal";
 
-    private string _userName; // name of the user who will be chatting
-    private string _message; // on-screen message
-    private string _newMessage; // new message input
-    private string _recipient; // new message input
+    private string _userName; 
+    private string _message; 
+    private string _newMessage; 
+    private string _recipient; 
 
     private List<MessageDetail> _messages = new List<MessageDetail>();
 
@@ -107,12 +108,11 @@ else
 
         try
         {
-            // Start chatting and force refresh UI, ref: https://github.com/dotnet/aspnetcore/issues/22159
             _isChatting = true;
             await Task.Delay(1);
 
-            _messages.Clear(); // remove old messages if any
-            string baseUrl = navigationManager.BaseUri; // Create the chat client
+            _messages.Clear(); 
+            string baseUrl = navigationManager.BaseUri; 
             _hubUrl = baseUrl.TrimEnd('/') + TakHub.HubUrl;
 
             _hubConnection = new HubConnectionBuilder()
@@ -152,7 +152,7 @@ else
     {
         if (_isChatting && !string.IsNullOrWhiteSpace(message))
         {
-            await _hubConnection.SendAsync("SendMessageRoom", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+            await _hubConnection.SendAsync("SendMessageRoom", new { UserName = userName, Message = message, Recipient = GetRecipient(_roomConnect, _recipient), Direct = IsDirect(recipient) });
 
             _newMessage = string.Empty;
         }
@@ -162,7 +162,7 @@ else
     {
         if (_isChatting && !string.IsNullOrWhiteSpace(message))
         {
-            await _hubConnection.SendAsync("SendUserRegisterAsync", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+            await _hubConnection.SendAsync("SendUserRegisterAsync", new { UserName = userName, Message = message, Recipient = GetRecipient(_roomConnect, _recipient), Direct = IsDirect(recipient) });
 
             _newMessage = string.Empty;
         }
@@ -173,15 +173,16 @@ else
     {
         if (_isChatting && !string.IsNullOrWhiteSpace(message))
         {
-            await _hubConnection.SendAsync("SendDirectMessage", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+            await _hubConnection.SendAsync("SendDirectMessage", new { UserName = userName, Message = message, Recipient = GetRecipient(_roomConnect, _recipient), Direct = IsDirect(recipient) });
 
             _newMessage = string.Empty;
         }
     }
 
-    private async Task SendRegisterRoomAsync(string room)
+    private async Task SendRegisterRoomAsync(string roomConnect)
     {
-        await _hubConnection.SendAsync("SendChangeRoom", room);
+        await _hubConnection.SendAsync("SendChangeRoom", _roomDisconnect, roomConnect);
+        _roomConnect = roomConnect;
     }
 
     private void BroadcastMessage(string username, string message, string recipient, string room)

@@ -28,10 +28,10 @@ namespace TakChat.Service
         }
 
         [HubMethodName("SendChangeRoom")]
-        public async Task ChangeRoom(string room)
+        public async Task ChangeRoom(string roomDisconnect, string roomConnect)
         {
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, room);
-            await Groups.AddToGroupAsync(Context.ConnectionId, room);
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomDisconnect);
+            await Groups.AddToGroupAsync(Context.ConnectionId, roomConnect);
         }
 
         public override Task OnConnectedAsync()
