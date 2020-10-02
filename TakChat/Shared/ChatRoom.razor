@@ -1,0 +1,229 @@
+﻿@page "/chatroom"
+@inject NavigationManager navigationManager
+@using Microsoft.AspNetCore.SignalR.Client;
+@using TakChat.Service;
+
+@if (!_isChatting)
+{
+    <p><h3>Vamos começar...</h3></p>
+
+    <div class="input-group mb-3">
+        <input type="text" class="form-control" placeholder="Qual seu nome?" aria-label="Qual seu nome?" @bind="@_userName" aria-describedby="basic-addon2">
+        <div class="input-group-append">
+            <button class="btn btn-outline-secondary" type="button" @onclick="@Chat">Começar</button>
+        </div>
+    </div>
+
+    @if (_message != null)
+    {
+        <div class="invalid-feedback">@_message</div>
+        <small id="emailHelp" class="form-text text-muted">@_message</small>
+    }
+}
+else
+{
+    <div class="float-right fixed-top d-flex flex-row-reverse pt-3 pr-4">
+        <h6 class="text-white"><b>@_userName</b>, você está conectado! Se desejar pode <button class="btn btn-outline-danger btn-sm" @onclick="@DisconnectAsync">Sair</button></h6>
+    </div>
+
+
+    <div id="scrollbox">
+        @foreach (var item in _messages)
+        {
+            @if (item.IsNotice)
+            {
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    @item.Message
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="@item.CSS">
+                    <div class="user">@item.UserName</div>
+                    <div class="msg">@item.Message</div>
+                </div>
+            }
+        }
+                
+        <div class="input-group mb-3">
+            <div class="input-group-prepend">
+                <span class="input-group-text" id="basic-addon1">Mensagem</span>
+            </div>
+            <input type="text" class="form-control" title="A mensagem será enviada para a sala informada abaixo." placeholder="Digite sua mensagem..." aria-label="Digite uma mensagem..." @bind="@_newMessage" aria-describedby="basic-addon2">
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => SendAsync(_userName, _newMessage, _recipient))">Enviar ...</button>
+            </div>
+        </div>
+
+        <div class="input-group mb-3">
+            <div class="input-group-prepend">
+                <span class="input-group-text" title="Informe a sala que receberá a mensagem caso ja esteja registrar ou clique em registrar para criar a sala." id="basic-addon1">Informe a Sala</span>
+            </div>
+            <input type="text" class="form-control" @bind="@_room" aria-label="Username" aria-describedby="basic-addon1">
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => SendRegisterRoomAsync(_room))">Registrar</button>
+            </div>
+        </div>
+
+        <div class="input-group mb-3">
+            <div class="input-group-prepend">
+                <span class="input-group-text" title="Informe o usuário que receberá a mensagem e clique em Direct..." id="basic-addon1">Nome usuario</span>
+            </div>
+            <input type="text" class="form-control" aria-label="Username" @bind="@_recipient" aria-describedby="basic-addon1">
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" id="btnDirect" type="button" @onclick="@(() => SendDirectMessage(_userName, _newMessage, _recipient))">Direct ...</button>
+            </div>
+        </div>
+    </div>
+}
+
+
+@code {
+
+    private bool _isChatting = false; // flag to indicate chat status
+    private string _room = "principal";
+
+    private string _userName; // name of the user who will be chatting
+    private string _message; // on-screen message
+    private string _newMessage; // new message input
+    private string _recipient; // new message input
+
+    private List<MessageDetail> _messages = new List<MessageDetail>();
+
+
+    private string _hubUrl;
+    private HubConnection _hubConnection;
+
+    public async Task Chat()
+    {
+        if (string.IsNullOrWhiteSpace(_userName))
+        {
+            _message = "Você esqueceu de informar seu nome ou apelido.";
+            return;
+        };
+
+        try
+        {
+            // Start chatting and force refresh UI, ref: https://github.com/dotnet/aspnetcore/issues/22159
+            _isChatting = true;
+            await Task.Delay(1);
+
+            _messages.Clear(); // remove old messages if any
+            string baseUrl = navigationManager.BaseUri; // Create the chat client
+            _hubUrl = baseUrl.TrimEnd('/') + TakHub.HubUrl;
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(_hubUrl)
+                .Build();
+
+            _hubConnection.On<string, string, string, string>("SendMessageRoom", BroadcastMessage);
+            _hubConnection.On<string, string, string, string>("SendDirectMessage", BroadcastMessage);
+            _hubConnection.On<string, string, string, string>("SendUserRegisterAsync", BroadcastMessage);
+
+            await _hubConnection.StartAsync();
+
+            await SendUserRegisterAsync(_userName, $"[Alerta] {_userName} entrou na sala.", _recipient);
+        }
+        catch (Exception e)
+        {
+            _message = $"[Alerta] ERROR: Falha ao iniciar o chat  - {e.Message}";
+            _isChatting = false;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (_isChatting)
+        {
+            await SendAsync(_userName, $"[Alerta] {_userName} saiu da sala.", _recipient);
+
+            await _hubConnection.StopAsync();
+            await _hubConnection.DisposeAsync();
+
+            _hubConnection = null;
+            _isChatting = false;
+        }
+    }
+
+    private async Task SendAsync(string userName, string message, string recipient)
+    {
+        if (_isChatting && !string.IsNullOrWhiteSpace(message))
+        {
+            await _hubConnection.SendAsync("SendMessageRoom", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+
+            _newMessage = string.Empty;
+        }
+    }
+
+    private async Task SendUserRegisterAsync(string userName, string message, string recipient)
+    {
+        if (_isChatting && !string.IsNullOrWhiteSpace(message))
+        {
+            await _hubConnection.SendAsync("SendUserRegisterAsync", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+
+            _newMessage = string.Empty;
+        }
+    }
+
+
+    private async Task SendDirectMessage(string userName, string message, string recipient)
+    {
+        if (_isChatting && !string.IsNullOrWhiteSpace(message))
+        {
+            await _hubConnection.SendAsync("SendDirectMessage", new { UserName = userName, Message = message, Recipient = GetRecipient(_room, _recipient), Direct = IsDirect(recipient) });
+
+            _newMessage = string.Empty;
+        }
+    }
+
+    private async Task SendRegisterRoomAsync(string room)
+    {
+        await _hubConnection.SendAsync("SendChangeRoom", room);
+    }
+
+    private void BroadcastMessage(string username, string message, string recipient, string room)
+    {
+        bool isMine = username.Equals(_userName, StringComparison.OrdinalIgnoreCase);
+
+        _messages.Add(new MessageDetail(username, message, isMine, recipient, room));
+
+        StateHasChanged();
+    }
+
+    private class MessageDetail
+    {
+        public MessageDetail(string userName, string message, bool isMine, string recipient, string room)
+        {
+            UserName = userName;
+            Message = message;
+            IsMine = isMine;
+        }
+
+        public string UserName { get; set; }
+        public string Message { get; set; }
+
+
+        public bool IsMine { get; set; }
+        public bool IsNotice => Message.StartsWith("[Alerta]");
+        public string CSS => GetCss(IsMine);
+    }
+
+    private static bool IsDirect(string recipient)
+    {
+        return recipient?.Length > 0;
+    }
+
+    private static string GetRecipient(string room, string recipient)
+    {
+        return recipient?.Length > 0 ? recipient : room;
+    }
+
+    private static string GetCss(bool mine)
+    {
+        return mine ? "sent" : "received";
+    }
+
+}
